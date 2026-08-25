@@ -213,6 +213,61 @@ set -- \
         -jar "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" \
         "$@"
 
+# ---- Start added wrapper-repair logic ----
+WRAPPER_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+WRAPPER_PROPS="$APP_HOME/gradle/wrapper/gradle-wrapper.properties"
+
+# Function to attempt to replace wrapper jar from distribution
+_download_and_extract_wrapper() {
+  distUrl="$1"
+  tmpzip="$(mktemp /tmp/gradle_dist.XXXXXX)" || tmpzip="/tmp/gradle_dist.zip"
+  echo "Downloading Gradle distribution: $distUrl"
+  if command -v curl >/dev/null 2>&1; then
+    curl -sSL -o "$tmpzip" "$distUrl" || return 1
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$tmpzip" "$distUrl" || return 1
+  else
+    echo "No downloader (curl/wget) available"
+    return 1
+  fi
+  # Try to extract gradle-wrapper.jar
+  unzip -q "$tmpzip" 'gradle-*/lib/gradle-wrapper.jar' -d /tmp || true
+  found="$(find /tmp -type f -name gradle-wrapper.jar -print -quit)"
+  if [ -n "$found" ] && [ -f "$found" ]; then
+    mkdir -p "$(dirname "$WRAPPER_JAR")"
+    cp "$found" "$WRAPPER_JAR" || return 1
+    echo "Replaced wrapper jar from $distUrl"
+    rm -f "$tmpzip"
+    return 0
+  fi
+  rm -f "$tmpzip"
+  return 1
+}
+
+# If wrapper jar missing or invalid, attempt to replace it using distribution declared in properties
+if [ ! -f "$WRAPPER_JAR" ]; then
+  echo "gradle-wrapper.jar not found; attempting to download from distribution"
+  if [ -f "$WRAPPER_PROPS" ]; then
+    distUrl="$(sed -n 's/^distributionUrl=//p' "$WRAPPER_PROPS")"
+  fi
+  distUrl="${distUrl:-https://services.gradle.org/distributions/gradle-9.3.1-bin.zip}"
+  _download_and_extract_wrapper "$distUrl" || echo "Failed to replace missing gradle-wrapper.jar"
+else
+  if ! unzip -t "$WRAPPER_JAR" >/dev/null 2>&1; then
+    echo "gradle-wrapper.jar is corrupted; attempting automatic replacement"
+    if [ -f "$WRAPPER_PROPS" ]; then
+      distUrl="$(sed -n 's/^distributionUrl=//p' "$WRAPPER_PROPS")"
+    fi
+    distUrl="${distUrl:-https://services.gradle.org/distributions/gradle-9.3.1-bin.zip}"
+    if _download_and_extract_wrapper "$distUrl"; then
+      echo "Successfully replaced corrupted wrapper jar"
+    else
+      echo "Automatic replacement failed; continuing but gradlew may still fail"
+    fi
+  fi
+fi
+# ---- End added wrapper-repair logic ----
+
 # Stop when "xargs" is not available.
 if ! command -v xargs >/dev/null 2>&1
 then
