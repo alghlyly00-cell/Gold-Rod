@@ -1,0 +1,7 @@
+# Mark binary files to avoid CRLF conversion and corruption
+# Ensure JAR files (including the Gradle wrapper) are treated as binary by Git
+*.jar binary
+gradle/wrapper/gradle-wrapper.jar -text
+
+# Keep shell scripts executable across platforms
+*.sh text eol=lf
